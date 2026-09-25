@@ -150,37 +150,50 @@ def whisper(args: Sequence[str]) -> Never:
 
 
     # TODO: replace deprecated FileType
-    io_args_group = parser.add_mutually_exclusive_group(required=False)
-    io_args_group.add_argument('SEND_FROM', nargs='?',
+    io_args = parser.add_argument_group(title='i/o options')
+    io_args_ex = io_args.add_mutually_exclusive_group(required=False)
+    io_args_ex.add_argument('SEND_FROM', nargs='?',
         type=argparse.FileType('rb'),
-        help='File to stream to the peer. If `-` or omitted, stdin is used. If `-r` is'
-            + ' specified, the stream is received instead.')
-    io_args_group.add_argument('-r', '--recv-to',
+        help='File to stream to the peer. If `-` or omitted, stdin is used.'
+            + ' Incompatible with `-r`.')
+    io_args_ex.add_argument('-r', '--recv-to',
         type=argparse.FileType('wb'),
         help='File to write the received stream to. If `-`, stdout is used and `-q` is'
-            + ' implied.')
+            + ' implied. Incompatible with `SEND_FROM`.')
 
-    role_args_group = parser.add_mutually_exclusive_group(required=True)
-    role_args_group.add_argument('-s', '--serve', action='store_true',
+    role_options = parser.add_argument_group(title='mode options',
+        description='One of these options must be specified.')
+    role_options_ex = role_options.add_mutually_exclusive_group(required=True)
+    role_options_ex.add_argument('-s', '--serve', action='store_true',
         help='Host the ephemeral server (opposite of `-c`). Use `-p` to specify the'
             + ' port number used.')
-    role_args_group.add_argument('-c', '--connect-to',
+    role_options_ex.add_argument('-c', '--connect-to',
         metavar='SERVER_ADDR',
         help='Connect to the server at `SERVER_ADDR`.')
 
-    parser.add_argument('-p', '--port',
-        type=int_within(0, 65535), default=8409,
-        help='Port number of the server. Default: `8409`')
-    parser.add_argument('-m', '--max-size', type=data_size,
+    server_options = parser.add_argument_group(title='server options',
+        description='These options only have an effect if `-s` is specified.')
+    server_options.add_argument('-i', '--interface', default='*',
+        help='Interface(s) to host the server on separated by commas. If `*`, all'
+            + ' interfaces are used. Default: `*`')
+
+    recv_options = parser.add_argument_group(title='receive options',
+        description='These options only have an effect if `-r` is specified.')
+    recv_options.add_argument('-m', '--max-size', type=data_size,
         default=data_size('100M'),
         help='Maximum received bytes; see \'data size arguments\' for format. Default:'
             + ' `100M`')
-    parser.add_argument('-q', '--quiet', action='store_true',
+
+    general_options = parser.add_argument_group(title='general options')
+    general_options.add_argument('-p', '--port',
+        type=int_within(0, 65_535), default=8_409,
+        help='Port number of the server. Default: `8409`')
+    general_options.add_argument('-q', '--quiet', action='store_true',
         help='Do not print progress information to stdout.')
 
-    # Added to role_args_group to prevent requirement of a role_args_group argument if
+    # Added to role_options to prevent requirement of a role_options argument if
     # `-h`/`--help` is used.
-    role_args_group.add_argument('-h', '--help', action='store_true',
+    role_options_ex.add_argument('-h', '--help', action='store_true',
         help='Print this help and exit.')
 
     parser.add_argument_group(title='data size arguments',
