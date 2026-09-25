@@ -15,7 +15,7 @@ import sys
 
 # DEFINITIONS
 
-def cli(args: Sequence[str]) -> None:
+def whisper(args: Sequence[str]) -> None:
     raise NotImplementedError # TODO
 
 
@@ -23,12 +23,12 @@ def cli(args: Sequence[str]) -> None:
 # MAIN
 
 if __name__ == '__main__':
-    cli(sys.argv[1:])
+    whisper(sys.argv[1:])
 
 
 
 # EXPORTS
 
 __all__ = [
-    'cli',
+    'whisper',
 ]

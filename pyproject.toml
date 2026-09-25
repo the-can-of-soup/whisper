@@ -55,7 +55,8 @@ GitHub = "https://github.com/the-can-of-soup/whisper_data"
 Issues = "https://github.com/the-can-of-soup/whisper_data/issues"
 
 
-# Command-line interface configuration
+# Shell command configuration
 [project.scripts]
 
-whisper = "whisper_data.cli:cli"
+whisper = "whisper_data.cli:whisper"
+wis = "whisper_data.cli:whisper"

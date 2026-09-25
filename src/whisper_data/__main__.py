@@ -16,4 +16,4 @@ from .cli import *
 
 # MAIN
 
-cli(sys.argv[1:])
+whisper(sys.argv[1:])
