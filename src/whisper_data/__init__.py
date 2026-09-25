@@ -1,5 +1,6 @@
 """
-Command-line interface for securely transferring messages or files over WebSocket.
+Transfer data through a secure stream over WebSocket with one peer hosting an ephemeral
+server.
 """
 
 
