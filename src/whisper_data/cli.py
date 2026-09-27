@@ -8,10 +8,10 @@ Command-line interface.
 
 from __future__ import annotations
 
-import math
+from typing import SupportsInt, SupportsFloat, Never
 from collections.abc import Sequence, Callable
-from typing import SupportsInt, Never
 import argparse
+import math
 import sys
 
 
@@ -51,6 +51,47 @@ def int_within(
         return value
 
     return bounded_int
+
+
+def float_within(
+        min: float | None,
+        max: float | None,
+        exc_type: type[Exception] = argparse.ArgumentTypeError,
+    ) -> Callable[[str | SupportsFloat], float]:
+    """
+    Return a callable that converts a value into a floating-point number and raises
+    ``exc_type`` if it is outside the specified range (or if it is infinite or ``nan``).
+
+    :param min: Minimum accepted value (inclusive, must be finite), or ``None`` for
+        unbounded.
+    :type min: float | None
+    :param max: Maximum accepted value (inclusive, must be finite), or ``None`` for
+        unbounded.
+    :type max: float | None
+    :param exc_type: Exception type for the callable to raise for out-of-bounds values.
+    :type exc_type: type[Exception]
+    :return: Callable that converts a value into a bounded float or raises the
+        appropriate exception.
+    :rtype: Callable[[str | SupportsFloat], float]
+    """
+
+    def bounded_float(value: str | SupportsFloat) -> float:
+        value: float = float(value)
+
+        if math.isinf(value):
+            raise exc_type(f'Expected finite value, got {value}')
+        if math.isnan(value):
+            raise exc_type(f'NaN is not allowed here')
+
+        if (min is not None and value < min) or (max is not None and value > max):
+            interval_min: str = '(∞' if min is None else f'[{float(min)}'
+            interval_max: str = '∞)' if max is None else f'{float(max)}]'
+            interval: str = f'{interval_min}, {interval_max}'
+            raise exc_type(f'Value {value} is outside the accepted range {interval}')
+
+        return value
+
+    return bounded_float
 
 
 def data_size(argument: str) -> int:
@@ -113,7 +154,7 @@ def data_size(argument: str) -> int:
                 + f' in data size {argument!r}') from None
         if value_in_unit < 0 or math.isinf(value_in_unit) or math.isnan(value_in_unit):
             raise argparse.ArgumentTypeError('Expected finite nonnegative value, got'
-                + f' {value_in_unit!r}')
+                + f' {value_in_unit!r} in data size {argument!r}')
 
         # Convert to bytes
         value: float = value_in_unit * unit_value
@@ -128,8 +169,35 @@ def data_size(argument: str) -> int:
         raise argparse.ArgumentTypeError(f'Invalid int {value_in_unit_unparsed!r} in'
             + f' data size {argument!r}') from None
     if value < 0:
-        raise argparse.ArgumentTypeError(f'Expected nonnegative value, got {value!r}')
+        raise argparse.ArgumentTypeError(f'Expected nonnegative value, got {value!r} in'
+            + f' data size {argument!r}')
     return value
+
+
+def or_special[T, U, V](
+        handler: Callable[[T], U],
+        *special: V,
+    ) -> Callable[[T], U | V]:
+    """
+    Return a callable that returns its single input unchanged if it is a member of
+    ``special``, otherwise passes it to ``handler``.
+
+    :param handler: Handler that the returned callable calls if its input is not a
+        member of ``special``.
+    :type handler: Callable[T, U]
+    :param special: Special values that pass through the returned callable without
+        calling ``handler``.
+    :type special: V
+    :return: Wrapped handler.
+    :rtype: Callable[T, U | V]
+    """
+
+    def wrapped_handler(input: T) -> U | V:
+        if input in special:
+            return input
+        return handler(input)
+
+    return wrapped_handler
 
 
 def whisper(args: Sequence[str]) -> Never:
@@ -168,26 +236,42 @@ def whisper(args: Sequence[str]) -> Never:
         help='Host the ephemeral server (opposite of `-c`). Use `-p` to specify the'
             + ' port number used.')
     role_options_ex.add_argument('-c', '--connect-to',
-        metavar='SERVER_ADDR',
-        help='Connect to the server at `SERVER_ADDR`.')
+        metavar='REMOTE_URI',
+        help='Connect to the server at `REMOTE_URI`.')
 
     server_options = parser.add_argument_group(title='server options',
         description='These options only have an effect if `-s` is specified.')
     server_options.add_argument('-i', '--interface', default='*',
         help='Interface(s) to host the server on separated by commas. If `*`, all'
             + ' interfaces are used. Default: `*`')
+    server_options.add_argument('-p', '--port',
+        type=int_within(0, 65_535), default=8_409,
+        help='Port number to host the server on. Default: `8409`')
+    server_options.add_argument('-t', '--timeout',
+        type=or_special(float_within(0.0, None), 'none'),
+        default=600.0,
+        help='Maximum time to wait for a connection in seconds, or `none` for no limit.'
+            + ' Default: `600.0`')
+
+    send_options = parser.add_argument_group(title='send options',
+        description='These options do not have an effect if `-r` is specified.')
+    send_options.add_argument('-S', '--send-frame-size',
+        type=lambda arg: int_within(1, None)(data_size(arg)),
+        default=data_size('32K'),
+        help='Maximum size of individual frames (chunks) sent to the peer. Default:'
+            + ' `32K`')
 
     recv_options = parser.add_argument_group(title='receive options',
         description='These options only have an effect if `-r` is specified.')
-    recv_options.add_argument('-m', '--max-size', type=data_size,
-        default=data_size('100M'),
-        help='Maximum received bytes; see \'data size arguments\' for format. Default:'
-            + ' `100M`')
+    recv_options.add_argument('-m', '--max-size',
+        type=or_special(data_size, 'none'), default=data_size('128M'),
+        help='Maximum accepted total size of received data, or `none` for no limit.'
+            + ' Default: `128M`')
+    recv_options.add_argument('-M', '--max-frame-size', type=data_size,
+        default=data_size('128K'),
+        help='Maximum accepted size of individual received frames (chunks).')
 
     general_options = parser.add_argument_group(title='general options')
-    general_options.add_argument('-p', '--port',
-        type=int_within(0, 65_535), default=8_409,
-        help='Port number of the server. Default: `8409`')
     general_options.add_argument('-q', '--quiet', action='store_true',
         help='Do not print progress information to stdout.')
 
@@ -209,8 +293,8 @@ def whisper(args: Sequence[str]) -> Never:
 
     parser.add_argument_group(title='exit status',
         description='0: Operation completed successfully; 1: Miscellaneous error; 2:'
-            + ' Argument parsing failure; 3: Connection failure; 4: Serving failure; 5:'
-            + ' `MAX_SIZE` exceeded.')
+            + ' Argument parsing failure; 3: Connection failure / protocol violation;'
+            + ' 4: Serving failure; 5: Timeout while waiting for connection.')
 
 
     parsed_args: argparse.Namespace = parser.parse_args(args)
@@ -235,7 +319,9 @@ if __name__ == '__main__':
 
 __all__ = [
     'int_within',
+    'float_within',
     'data_size',
+    'or_special',
 
     'whisper',
 ]
