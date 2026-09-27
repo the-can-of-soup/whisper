@@ -8,11 +8,18 @@ Command-line interface.
 
 from __future__ import annotations
 
-from typing import SupportsInt, SupportsFloat, Never
+from typing import SupportsInt, SupportsFloat, Never, BinaryIO
 from collections.abc import Sequence, Callable
+import traceback
 import argparse
 import math
 import sys
+
+
+
+# GLOBALS
+
+_open_files: list[BinaryIO] = []
 
 
 
@@ -200,9 +207,86 @@ def or_special[T, U, V](
     return wrapped_handler
 
 
+def error(parser: argparse.ArgumentParser, status: int, message: str) -> Never:
+    """
+    Print an error message to stderr and exit.
+
+    :param parser: Command argument parser.
+    :type parser: argparse.ArgumentParser
+    :param status: Exit status code.
+    :type status: int
+    :param message: Message to print.
+    :type message: str
+    :rtype: Never
+    """
+
+    sys.stderr.write(f'{parser.prog}: error: {message}\n')
+    parser.exit(status)
+
+
+def _open_binary_file_read(filename: str) -> BinaryIO:
+    """
+    Open a file in binary reading mode from a command-line argument. If ``-``, stdin is
+    used.
+
+    :param filename: Command-line argument.
+    :type filename: str
+    :return: Binary stream.
+    :rtype: BinaryIO
+    :raise argparse.ArgumentTypeError: If the file cannot be opened.
+    """
+    global _open_files
+
+    if filename == '-':
+        return sys.stdin.buffer
+
+    file: BinaryIO = open(filename, 'rb')
+    _open_files.append(file)
+    return file
+
+
+def _open_binary_file_write(filename: str) -> BinaryIO:
+    """
+    Open a file in binary writing mode from a command-line argument. If ``-``, stdout is
+    is used.
+
+    :param filename: Command-line argument.
+    :type filename: str
+    :return: Binary stream.
+    :rtype: BinaryIO
+    :raise OSError: If the file cannot be opened.
+    """
+    global _open_files
+
+    if filename == '-':
+        return sys.stdout.buffer
+
+    file: BinaryIO = open(filename, 'wb')
+    _open_files.append(file)
+    return file
+
+
+def _clean_up() -> None:
+    global _open_files
+
+    for file in _open_files:
+        file.close()
+
+
+def _finally_cleanup[T, U](func: Callable[T, U]) -> Callable[T, U]:
+    def func_with_cleanup(*args, **kwargs) -> U:
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _clean_up()
+
+    return func_with_cleanup
+
+
+@_finally_cleanup
 def whisper(args: Sequence[str]) -> Never:
     """
-    Run the ``whisper`` command-line interface with the given arguments.
+    Run the ``whisper`` command-line with the given arguments.
 
     :param args: Command-line arguments.
     :type args: Sequence[str]
@@ -217,15 +301,14 @@ def whisper(args: Sequence[str]) -> Never:
     )
 
 
-    # TODO: replace deprecated FileType
     io_args = parser.add_argument_group(title='i/o options')
     io_args_ex = io_args.add_mutually_exclusive_group(required=False)
     io_args_ex.add_argument('SEND_FROM', nargs='?',
-        type=argparse.FileType('rb'),
+        type=_open_binary_file_read,
         help='File to stream to the peer. If `-` or omitted, stdin is used.'
             + ' Incompatible with `-r`.')
     io_args_ex.add_argument('-r', '--recv-to',
-        type=argparse.FileType('wb'),
+        type=_open_binary_file_write,
         help='File to write the received stream to. If `-`, stdout is used and `-q` is'
             + ' implied. Incompatible with `SEND_FROM`.')
 
@@ -293,11 +376,16 @@ def whisper(args: Sequence[str]) -> Never:
 
     parser.add_argument_group(title='exit status',
         description='0: Operation completed successfully; 1: Miscellaneous error; 2:'
-            + ' Argument parsing failure; 3: Connection failure / protocol violation;'
-            + ' 4: Serving failure; 5: Timeout while waiting for connection.')
+            + ' Argument parsing failure; 3: File I/O error; 4: Connection failure /'
+            + ' protocol violation; 5: Serving failure; 6: Timeout while waiting for'
+            + ' connection.')
 
 
-    parsed_args: argparse.Namespace = parser.parse_args(args)
+    try:
+        parsed_args: argparse.Namespace = parser.parse_args(args)
+    except OSError as exc:
+        error(parser, 3, traceback.format_exception_only(exc)[0].strip())
+
 
     if parsed_args.help:
         parser.print_help()
@@ -322,6 +410,7 @@ __all__ = [
     'float_within',
     'data_size',
     'or_special',
+    'error',
 
     'whisper',
 ]
