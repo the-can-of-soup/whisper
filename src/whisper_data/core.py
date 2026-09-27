@@ -2,6 +2,10 @@
 Backend definitions.
 """
 
+# TODO: USE TLS
+# TODO: Prevent likely hang or undefined behavior when both peers attempt to
+#   send/receive
+
 
 
 # IMPORTS
