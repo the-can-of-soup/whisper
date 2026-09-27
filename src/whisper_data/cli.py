@@ -15,6 +15,8 @@ import argparse
 import math
 import sys
 
+from . import common
+
 
 
 # GLOBALS
@@ -294,8 +296,7 @@ def whisper(args: Sequence[str]) -> Never:
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='whisper',
-        description='Transfer data through a secure stream over WebSocket with one peer'
-            + ' hosting an ephemeral server.',
+        description=common.DESCRIPTION,
         add_help=False,
         exit_on_error=True,
     )
@@ -312,15 +313,18 @@ def whisper(args: Sequence[str]) -> Never:
         help='File to write the received stream to. If `-`, stdout is used and `-q` is'
             + ' implied. Incompatible with `SEND_FROM`.')
 
-    role_options = parser.add_argument_group(title='mode options',
+    mode_options = parser.add_argument_group(title='mode options',
         description='One of these options must be specified.')
-    role_options_ex = role_options.add_mutually_exclusive_group(required=True)
-    role_options_ex.add_argument('-s', '--serve', action='store_true',
+    mode_options_ex = mode_options.add_mutually_exclusive_group(required=True)
+    mode_options_ex.add_argument('-s', '--serve', action='store_true',
         help='Host the ephemeral server (opposite of `-c`). Use `-p` to specify the'
             + ' port number used.')
-    role_options_ex.add_argument('-c', '--connect-to',
+    mode_options_ex.add_argument('-c', '--connect-to',
         metavar='REMOTE_URI',
         help='Connect to the server at `REMOTE_URI`.')
+    mode_options_ex.add_argument('-h', '--help', action='store_true',
+        help='Print this help and exit.')
+    # TODO: Add `-v`/`--version` option that prints common.VERSION and exits
 
     server_options = parser.add_argument_group(title='server options',
         description='These options only have an effect if `-s` is specified.')
@@ -357,11 +361,6 @@ def whisper(args: Sequence[str]) -> Never:
     general_options = parser.add_argument_group(title='general options')
     general_options.add_argument('-q', '--quiet', action='store_true',
         help='Do not print progress information to stdout.')
-
-    # Added to role_options to prevent requirement of a role_options argument if
-    # `-h`/`--help` is used.
-    role_options_ex.add_argument('-h', '--help', action='store_true',
-        help='Print this help and exit.')
 
     parser.add_argument_group(title='data size arguments',
         description='Data size arguments are case-insensitive and accept either the'
