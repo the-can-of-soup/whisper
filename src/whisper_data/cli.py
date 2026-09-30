@@ -389,8 +389,8 @@ def whisper(args: Sequence[str]) -> Never:
             + ' `~/.whisper/keys/primary` (where `~` is user home)')
     tls_options.add_argument('-K', '--key-certfile',
         default=common.DEFAULT_KEY_CERT_PATH,
-        help='Matching certificate chain for our keyfile. Ignored if the keyfile has an'
-            + ' embedded cert chain; may be omitted in that case. Default:'
+        help='Corresponding certificate chain for our keyfile. Ignored if the keyfile'
+            + ' has an embedded cert chain; may be omitted in that case. Default:'
             + ' `~/.whisper/keys/primary-cert`')
     tls_options.add_argument('--unsecure', action='store_true',
         help='Disable TLS. Only use this if you know what you\'re doing.')
