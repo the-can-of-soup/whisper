@@ -8,14 +8,19 @@ Command-line interface.
 
 from __future__ import annotations
 
-from typing import SupportsInt, SupportsFloat, Never, BinaryIO
+from typing import SupportsInt, SupportsFloat, Never, BinaryIO, Any
 from collections.abc import Sequence, Callable
-import traceback
+import websockets.exceptions
 import argparse
+import asyncio
 import math
+import glob
 import sys
+import ssl
+import os
 
 from . import common
+from . import core
 
 
 
@@ -209,18 +214,28 @@ def or_special[T, U, V](
     return wrapped_handler
 
 
-def error(parser: argparse.ArgumentParser, status: int, message: str) -> Never:
+def error(
+        parser: argparse.ArgumentParser,
+        msg_or_exc: str | Exception,
+        status: int = 1,
+    ) -> Never:
     """
-    Print an error message to stderr and exit.
+    Print an error message or exception to stderr and exit.
 
     :param parser: Command argument parser.
     :type parser: argparse.ArgumentParser
-    :param status: Exit status code.
+    :param msg_or_exc: Message or exception to print.
+    :type msg_or_exc: str | Exception
+    :param status: Exit status.
     :type status: int
-    :param message: Message to print.
-    :type message: str
     :rtype: Never
     """
+
+    message: str
+    if isinstance(msg_or_exc, Exception):
+        message = common.format_exc(msg_or_exc)
+    else:
+        message = msg_or_exc
 
     sys.stderr.write(f'{parser.prog}: error: {message}\n')
     parser.exit(status)
@@ -294,6 +309,7 @@ def whisper(args: Sequence[str]) -> Never:
     :type args: Sequence[str]
     """
 
+
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='whisper',
         description=common.DESCRIPTION,
@@ -305,7 +321,7 @@ def whisper(args: Sequence[str]) -> Never:
     io_args = parser.add_argument_group(title='i/o options')
     io_args_ex = io_args.add_mutually_exclusive_group(required=False)
     io_args_ex.add_argument('SEND_FROM', nargs='?',
-        type=_open_binary_file_read,
+        type=_open_binary_file_read, default=sys.stdin.buffer,
         help='File to stream to the peer. If `-` or omitted, stdin is used.'
             + ' Incompatible with `-r`.')
     io_args_ex.add_argument('-r', '--recv-to',
@@ -328,9 +344,12 @@ def whisper(args: Sequence[str]) -> Never:
 
     server_options = parser.add_argument_group(title='server options',
         description='These options only have an effect if `-s` is specified.')
-    server_options.add_argument('-i', '--interface', default='*',
+    server_options.add_argument('-i', '--interfaces',
+        type=lambda arg:
+            '*' if arg == '*' else arg.removesuffix(',').split(','),
+        default='*',
         help='Interface(s) to host the server on separated by commas. If `*`, all'
-            + ' interfaces are used. Default: `*`')
+            + ' interfaces are used. Trailing comma is permitted. Default: `*`')
     server_options.add_argument('-p', '--port',
         type=int_within(0, 65_535), default=8_409,
         help='Port number to host the server on. Default: `8409`')
@@ -356,7 +375,25 @@ def whisper(args: Sequence[str]) -> Never:
             + ' Default: `128M`')
     recv_options.add_argument('-M', '--max-frame-size', type=data_size,
         default=data_size('128K'),
-        help='Maximum accepted size of individual received frames (chunks).')
+        help='Maximum accepted size of individual received frames (chunks).'
+            + ' Default: `128K`')
+
+    tls_options = parser.add_argument_group(title='TLS options')
+    tls_options.add_argument('-C', '--certfile', type=glob.glob,
+        help='Trusted certificate file(s). Globbing is supported (and directories are'
+            ' excluded). Default: `~/.whisper/certs/*` (where `~` is user home)')
+    tls_options.add_argument('-k', '--keyfile',
+        default=common.DEFAULT_KEY_PATH,
+        help='Key file for ourselves. If it does not have an embedded certificate'
+            + ' chain, `-K` must be specified as well. Default:'
+            + ' `~/.whisper/keys/primary` (where `~` is user home)')
+    tls_options.add_argument('-K', '--key-certfile',
+        default=common.DEFAULT_KEY_CERT_PATH,
+        help='Matching certificate chain for our keyfile. Ignored if the keyfile has an'
+            + ' embedded cert chain; may be omitted in that case. Default:'
+            + ' `~/.whisper/keys/primary-cert`')
+    tls_options.add_argument('--unsecure', action='store_true',
+        help='Disable TLS. Only use this if you know what you\'re doing.')
 
     general_options = parser.add_argument_group(title='general options')
     general_options.add_argument('-q', '--quiet', action='store_true',
@@ -366,32 +403,110 @@ def whisper(args: Sequence[str]) -> Never:
         description='Data size arguments are case-insensitive and accept either the'
             + ' form `<int>`, `<int>B`, or `<float><unit>`; the first two forms specify'
             + ' the size in bytes, and the last form specifies the size in some other'
-            + ' unit. If the conversion from this unit to bytes returns a fractional'
-            + ' value, it is rounded to the nearest integer. The units `k`, `M`, `G`,'
-            + ' and `T`, or their aliases `kiB`, `MiB`, `GiB`, and `TiB`, refer to the'
-            + ' IEC units kibibytes, mebibytes, gibibytes, and tebibytes respectively.'
-            + ' `kB`, `MB`, `GB`, and `TB` represent their respective SI units'
-            + ' kilobytes, megabytes, gigabytes, and terabytes.')
+            + ' unit. The units `k`, `M`, `G`, and `T`, or their aliases `kiB`, `MiB`,'
+            + ' `GiB`, and `TiB`, refer to the IEC units kibibytes, mebibytes,'
+            + ' gibibytes, and tebibytes respectively. `kB`, `MB`, `GB`, and `TB`'
+            + ' represent their respective SI units kilobytes, megabytes, gigabytes,'
+            + ' and terabytes. If the conversion from this unit to bytes returns a'
+            + ' fractional value, it is rounded to the nearest integer.')
 
     parser.add_argument_group(title='exit status',
-        description='0: Operation completed successfully; 1: Miscellaneous error; 2:'
-            + ' Argument parsing failure; 3: File I/O error; 4: Connection failure /'
-            + ' protocol violation; 5: Serving failure; 6: Timeout while waiting for'
-            + ' connection.')
+        description='0: Operation completed successfully; 1: Unexpected error; 2:'
+            + ' Argument parsing failure; 3: File I/O error; 4: Bad URI; 5: Initial'
+            + ' connection failure; 6: Serving failure; 7: Timeout while waiting for'
+            + ' connection; 8: Connection broken; 9: Failure loading TLS certs/key; 10:'
+            + ' Other TLS error.')
 
 
     try:
         parsed_args: argparse.Namespace = parser.parse_args(args)
     except OSError as exc:
-        error(parser, 3, traceback.format_exception_only(exc)[0].strip())
+        error(parser, exc, 3)
 
 
     if parsed_args.help:
         parser.print_help()
-        parser.exit()
+        parser.exit(0)
 
 
-    raise NotImplementedError # TODO
+    # Configure
+
+    common.ensure_dirs()
+
+    whisperer: core.Whisperer
+    is_sender: bool = parsed_args.recv_to is None
+
+    trusted_certfiles: list[str] | None = (
+        None
+            if parsed_args.unsecure
+        else glob.glob(common.DEFAULT_CERTS_PATTERN)
+            if parsed_args.certfile is None
+        else parsed_args.certfile
+    )
+    if isinstance(trusted_certfiles, list):
+        trusted_certfiles = [
+            path for path in trusted_certfiles
+                if not os.path.isdir(path)
+        ]
+
+    kwargs: dict[str, Any] = {
+        'max_recv_size': 0 if is_sender
+            else (None if parsed_args.max_size == 'none' else parsed_args.max_size),
+        'max_recv_frame_size': 0 if is_sender else parsed_args.max_frame_size,
+        'max_send_frame_size': parsed_args.send_frame_size,
+        'trusted_certfiles': trusted_certfiles,
+        'keyfile': parsed_args.keyfile,
+        'key_certfile': parsed_args.key_certfile,
+    }
+
+    try:
+        if parsed_args.serve:
+            whisperer = core.Server(
+                parsed_args.interfaces,
+                parsed_args.port,
+                timeout=None if parsed_args.timeout == 'none' else parsed_args.timeout,
+                **kwargs,
+            )
+        else:
+            whisperer = core.Client(
+                parsed_args.connect_to,
+                **kwargs,
+            )
+    except (ssl.SSLError, OSError, UnicodeDecodeError) as exc:
+        error(parser, exc, 9)
+
+
+    # Stream data
+
+    async def perform_stream() -> None:
+        nonlocal parsed_args
+        nonlocal whisperer
+        nonlocal is_sender
+
+        # TODO: Print progress to stdout unless `-q` or `-r -` is given
+        if is_sender:
+            await whisperer.connect_and_send_stream(parsed_args.SEND_FROM)
+        else:
+            async for frame in whisperer.connect_and_recv_stream():
+                parsed_args.recv_to.write(frame)
+
+    try:
+        asyncio.run(perform_stream())
+    except websockets.exceptions.InvalidURI:
+        error(parser, 'Invalid WebSocket URI', 4)
+    except core.WaitForConnectionTimeout:
+        error(parser, 'Client did not connect within timeout period',
+            7)
+    except (core.TCPHandshakeFailed, websockets.exceptions.InvalidHandshake,
+            TimeoutError) as exc:
+        error(parser, exc, 5)
+    except websockets.exceptions.ConnectionClosed as exc:
+        error(parser, exc, 8)
+    except ssl.SSLError as exc:
+        error(parser, exc, 10)
+
+
+    parser.exit(0)
 
 
 
