@@ -2,6 +2,8 @@
 Command-line interface.
 """
 
+# TODO: Fix ~0.5s delay likely caused by imports
+
 
 
 # IMPORTS
