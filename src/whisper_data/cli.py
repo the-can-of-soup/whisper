@@ -305,12 +305,12 @@ def _finally_cleanup[T, U](func: Callable[T, U]) -> Callable[T, U]:
 
 
 @_finally_cleanup
-def whisper(args: Sequence[str]) -> Never:
+def whisper(args: Sequence[str] | None = None) -> Never:
     """
     Run the ``whisper`` command-line with the given arguments.
 
-    :param args: Command-line arguments.
-    :type args: Sequence[str]
+    :param args: Command-line arguments, or ``None`` to pull from ``sys.argv``.
+    :type args: Sequence[str] | None
     """
 
 
@@ -513,12 +513,12 @@ def whisper(args: Sequence[str]) -> Never:
     parser.exit(0)
 
 
-def whisper_certs(args: Sequence[str]) -> Never:
+def whisper_certs(args: Sequence[str] | None = None) -> Never:
     """
     Run the ``whisper-certs`` command-line with the given arguments.
 
-    :param args: Command-line arguments.
-    :type args: Sequence[str]
+    :param args: Command-line arguments, or ``None`` to pull from ``sys.argv``.
+    :type args: Sequence[str] | None
     """
 
 
