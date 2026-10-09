@@ -506,6 +506,7 @@ class Client(Whisperer):
                 self.remote_uri,
                 compression='deflate', # TODO: Maybe set `compression` to `None`
                 max_size=(self._max_recv_size, self._max_recv_frame_size),
+                ssl=self.tls,
             )
 
         except OSError as exc:

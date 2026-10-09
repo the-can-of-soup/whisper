@@ -60,3 +60,6 @@ Issues = "https://github.com/the-can-of-soup/whisper_data/issues"
 
 whisper = "whisper_data.cli:whisper"
 wis = "whisper_data.cli:whisper"
+
+whisper-certs = "whisper_data.cli:whisper_certs"
+wis-certs = "whisper_data.cli:whisper_certs"

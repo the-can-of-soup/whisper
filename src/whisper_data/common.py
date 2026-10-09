@@ -22,8 +22,8 @@ CERTS_PATH: str = os.path.expanduser('~/.whisper/certs')
 KEYS_PATH: str = os.path.expanduser('~/.whisper/keys')
 
 DEFAULT_CERTS_PATTERN: str = os.path.join(CERTS_PATH, '*') # Update `-C` option help too
-DEFAULT_KEY_PATH: str = os.path.join(KEYS_PATH, 'primary') # Update `-k` option help too
-DEFAULT_KEY_CERT_PATH: str = os.path.join(KEYS_PATH, 'primary-cert') # Update `-K` option help too
+DEFAULT_KEY_PATH: str = os.path.join(KEYS_PATH, 'primary.key') # Update `-k` option help too
+DEFAULT_KEY_CERT_PATH: str = os.path.join(CERTS_PATH, 'primary.crt') # Update `-K` option help too
 
 
 
@@ -55,6 +55,25 @@ def format_exc(exc: Exception) -> str:
     return traceback.format_exception_only(exc)[0].strip()
 
 
+def path_rel_to_home_if_inside(path: str) -> str:
+    """
+    Reformat ``path`` relative to the user's home directory with ``~`` notation if it
+    references a file inside it, otherwise make ``path`` absolute.
+
+    :param path: Path to reformat.
+    :type path: str
+    :return: Reformatted path.
+    :rtype: str
+    """
+
+    home: str = os.path.abspath(os.path.expanduser('~'))
+    path = os.path.abspath(path)
+
+    if os.path.commonpath([path, home]).startswith(home):
+        return os.path.join('~', os.path.relpath(path, start=home))
+    return path
+
+
 
 # EXPORTS
 
@@ -71,4 +90,5 @@ __all__ = [
 
     'ensure_dirs',
     'format_exc',
+    'path_rel_to_home_if_inside',
 ]

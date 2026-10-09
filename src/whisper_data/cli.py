@@ -11,10 +11,14 @@ from __future__ import annotations
 from typing import SupportsInt, SupportsFloat, Never, BinaryIO, Any
 from collections.abc import Sequence, Callable
 import websockets.exceptions
+import subprocess
 import argparse
+import tempfile
 import asyncio
+import getpass
 import math
 import glob
+import time
 import sys
 import ssl
 import os
@@ -314,20 +318,19 @@ def whisper(args: Sequence[str]) -> Never:
         prog='whisper',
         description=common.DESCRIPTION,
         add_help=False,
-        exit_on_error=True,
     )
 
 
     io_args = parser.add_argument_group(title='i/o options')
     io_args_ex = io_args.add_mutually_exclusive_group(required=False)
-    io_args_ex.add_argument('SEND_FROM', nargs='?',
+    io_args_ex.add_argument('send_from', nargs='?',
         type=_open_binary_file_read, default=sys.stdin.buffer,
         help='File to stream to the peer. If `-` or omitted, stdin is used.'
             + ' Incompatible with `-r`.')
     io_args_ex.add_argument('-r', '--recv-to',
         type=_open_binary_file_write,
         help='File to write the received stream to. If `-`, stdout is used and `-q` is'
-            + ' implied. Incompatible with `SEND_FROM`.')
+            + ' implied. Incompatible with `send-from`.')
 
     mode_options = parser.add_argument_group(title='mode options',
         description='One of these options must be specified.')
@@ -379,19 +382,20 @@ def whisper(args: Sequence[str]) -> Never:
             + ' Default: `128K`')
 
     tls_options = parser.add_argument_group(title='TLS options')
-    tls_options.add_argument('-C', '--certfile', type=glob.glob,
+    tls_options.add_argument('-C', '--certfile',
+        type=lambda arg: glob.glob(arg, recursive=True),
         help='Trusted certificate file(s). Globbing is supported (and directories are'
             ' excluded). Default: `~/.whisper/certs/*` (where `~` is user home)')
     tls_options.add_argument('-k', '--keyfile',
         default=common.DEFAULT_KEY_PATH,
         help='Key file for ourselves. If it does not have an embedded certificate'
             + ' chain, `-K` must be specified as well. Default:'
-            + ' `~/.whisper/keys/primary` (where `~` is user home)')
+            + ' `~/.whisper/keys/primary.key` (where `~` is user home)')
     tls_options.add_argument('-K', '--key-certfile',
         default=common.DEFAULT_KEY_CERT_PATH,
         help='Corresponding certificate chain for our keyfile. Ignored if the keyfile'
             + ' has an embedded cert chain; may be omitted in that case. Default:'
-            + ' `~/.whisper/keys/primary-cert`')
+            + ' `~/.whisper/certs/primary.crt`')
     tls_options.add_argument('--unsecure', action='store_true',
         help='Disable TLS. Only use this if you know what you\'re doing.')
 
@@ -439,7 +443,7 @@ def whisper(args: Sequence[str]) -> Never:
     trusted_certfiles: list[str] | None = (
         None
             if parsed_args.unsecure
-        else glob.glob(common.DEFAULT_CERTS_PATTERN)
+        else glob.glob(common.DEFAULT_CERTS_PATTERN, recursive=True)
             if parsed_args.certfile is None
         else parsed_args.certfile
     )
@@ -485,7 +489,7 @@ def whisper(args: Sequence[str]) -> Never:
 
         # TODO: Print progress to stdout unless `-q` or `-r -` is given
         if is_sender:
-            await whisperer.connect_and_send_stream(parsed_args.SEND_FROM)
+            await whisperer.connect_and_send_stream(parsed_args.send_from)
         else:
             async for frame in whisperer.connect_and_recv_stream():
                 parsed_args.recv_to.write(frame)
@@ -509,6 +513,261 @@ def whisper(args: Sequence[str]) -> Never:
     parser.exit(0)
 
 
+def whisper_certs(args: Sequence[str]) -> Never:
+    """
+    Run the ``whisper-certs`` command-line with the given arguments.
+
+    :param args: Command-line arguments.
+    :type args: Sequence[str]
+    """
+
+
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        prog='whisper-certs',
+        description='Simple tool for creating and managing `whisper` certificates.',
+        add_help=False,
+    )
+    parser.set_defaults(subcommand=None)
+    parsers = parser.add_subparsers(title='subcommands')
+
+    parser.add_argument('-h', '--help', action='store_true',
+        help='Print general help or help on the selected subcommand.')
+
+
+    create_subcmd_description: str = ('Wrapper around openssl to create a self-signed'
+        + ' certificate. Requires the `openssl` command.')
+    create_parser = parsers.add_parser(
+        'create',
+        help=create_subcmd_description,
+        description=create_subcmd_description,
+        prefix_chars='-+',
+        add_help=False,
+    )
+    create_parser.set_defaults(subcommand='create')
+
+    create_out_dest_options = create_parser.add_argument_group(title='output location'
+        + ' options',
+        description='If none of these options are specified, a default `--name` is'
+            + ' used.')
+    create_out_dest_options.add_argument('key_out', nargs='?',
+        help='Write the private key to this file in PEM format. If `cert-out` is'
+            + ' omitted, will also embed the certificate.')
+    create_out_dest_options.add_argument('cert_out', nargs='?',
+        help='Write the certificate to this file in PEM format.')
+    create_out_dest_options.add_argument('-n', '--name',
+        help='Create the key and certificate files with this name (plus a file'
+            + ' extension) in the default directories. Create only the keyfile if the'
+            + ' certfile is embedded. Incompatible with `key-out` and `cert-out`.')
+
+    create_out_options = create_parser.add_argument_group(title='output options')
+    create_out_options.add_argument('-e', '--embed', action='store_const',
+        dest='force_embed', const=True,
+        help='Embed the certificate into the keyfile.')
+    create_out_options.add_argument('+e', '--no-embed',
+        action='store_const', dest='force_embed', const=False,
+        help='Do not embed the certificate into the keyfile.')
+
+    cert_options = create_parser.add_argument_group(title='certificate options')
+    cert_options.add_argument('-o', '--owner',
+        help='Issuer/issuee name to put on the certificate. Default: current effective'
+            + ' username')
+    cert_options.add_argument('-E', '--expire-in', metavar='DAYS',
+        type=int_within(1, None), default=365,
+        help='Days until the certificate expires. Default: `365`')
+
+    general_options = create_parser.add_argument_group(title='general options')
+    general_options.add_argument('-h', '--help', action='store_true',
+        help='Print this help and exit.')
+
+
+    list_subcmd_description: str = ('List certificates or keyfiles in the default'
+        + ' directories.')
+    list_parser = parsers.add_parser(
+        'list',
+        help=list_subcmd_description,
+        description=list_subcmd_description,
+        epilog='Calling with no arguments implies `-c`.',
+        add_help=False,
+    )
+    list_parser.set_defaults(subcommand='list')
+
+    list_parser.add_argument('-c', '--certfiles', action='store_true',
+        help='List default trusted certificates.')
+    list_parser.add_argument('-k', '--keyfiles', action='store_true',
+        help='List keyfiles.')
+    list_parser.add_argument('-h', '--help', action='store_true',
+        help='Print this help and exit.')
+
+
+    parsed_args = parser.parse_args(args)
+
+
+    if parsed_args.help:
+        match parsed_args.subcommand:
+            case 'create':
+                create_parser.print_help()
+            case 'list':
+                list_parser.print_help()
+
+            case _:
+                parser.print_help()
+
+        parser.exit(0)
+
+
+    common.ensure_dirs()
+
+    match parsed_args.subcommand:
+        case 'create':
+            if parsed_args.name is not None and (parsed_args.key_out is not None
+                    or parsed_args.cert_out is not None):
+                error(parser, 'argument -n/--name: not allowed with arguments key-out,'
+                    + ' cert-out', 2)
+
+            # Determine output paths
+
+            keyfile: str | None = parsed_args.key_out
+            certfile: str | None = parsed_args.cert_out
+
+            if parsed_args.name is not None:
+                if os.path.dirname(parsed_args.name) != '':
+                    error(parser, 'argument -n/--name: Invalid filename'
+                        + f' {parsed_args.name!r}', 2)
+
+                name: str = parsed_args.name
+                if parsed_args.force_embed is True:
+                    keyfile = os.path.join(common.KEYS_PATH, f'{name}.pem')
+                else:
+                    keyfile = os.path.join(common.KEYS_PATH, f'{name}.key')
+                    certfile = os.path.join(common.CERTS_PATH, f'{name}.crt')
+
+            if keyfile is None:
+                name: str = time.strftime('%Y-%m-%d_%H-%M-%S')
+                if parsed_args.force_embed is True:
+                    keyfile = os.path.join(common.KEYS_PATH, f'{name}.pem')
+                else:
+                    keyfile = os.path.join(common.KEYS_PATH, f'{name}.key')
+                    certfile = os.path.join(common.CERTS_PATH, f'{name}.crt')
+            keyfile: str
+
+            embed: bool = (certfile is None
+                if parsed_args.force_embed is None
+                else parsed_args.force_embed)
+
+            # Determine owner name
+            owner: str = (getpass.getuser() if parsed_args.owner is None
+                else parsed_args.owner)
+
+            # Create private key
+
+            # noinspection SpellCheckingInspection
+            exit_status: int = subprocess.call([
+                'openssl', 'genpkey',
+                '-algorithm', 'RSA',
+                '-outform', 'PEM',
+                '-out', keyfile,
+            ])
+            if exit_status != 0:
+                parser.exit(exit_status)
+
+            print(f'Keyfile written to: {common.path_rel_to_home_if_inside(keyfile)}')
+
+            # Create certificate
+
+            create_cert_cmd_without_out: list[str] = [
+                'openssl', 'x509',
+                '-new',
+                '-key', keyfile,
+                '-days', str(parsed_args.expire_in),
+                '-subj', f'/CN={owner
+                    .replace('/', '\\/')
+                    .replace('=', '\\=')
+                    .replace('+', '\\+')}',
+                '-outform', 'PEM',
+            ]
+
+            if certfile is not None:
+                exit_status = subprocess.call(create_cert_cmd_without_out + [
+                    '-out', certfile,
+                ])
+                if exit_status != 0:
+                    parser.exit(exit_status)
+
+                print(f'Certificate issued to {owner!r} written to:'
+                    + f' {common.path_rel_to_home_if_inside(certfile)}')
+
+            if embed:
+                with tempfile.NamedTemporaryFile('r') as temp_certfile_stream:
+                    # Write certificate to a temporary file
+                    exit_status = subprocess.call(create_cert_cmd_without_out + [
+                        '-out', temp_certfile_stream.name,
+                    ])
+                    if exit_status != 0:
+                        parser.exit(exit_status)
+
+                    # Read certificate contents
+                    cert: str = temp_certfile_stream.read()
+
+                # Read private key contents
+                with open(keyfile, 'r') as keyfile_stream:
+                    key: str = keyfile_stream.read()
+
+                # Combine and write to keyfile
+                combined: str = key.removesuffix('\n') + '\n' + cert
+                with open(keyfile, 'w') as keyfile_stream:
+                    keyfile_stream.write(combined)
+
+                print(f'Certificate issued to {owner!r} embedded into keyfile.')
+
+            parser.exit(0)
+
+
+        case 'list':
+            neither: bool = not (parsed_args.certfiles or parsed_args.keyfiles)
+            # if neither:
+            #     error(parser, '-c/--certfiles and/or -k/--keyfiles must be'
+            #         + ' specified', 2)
+
+            if parsed_args.certfiles or neither:
+                print('Default trusted certificates:')
+
+                empty: bool = True
+                for path in sorted(
+                        glob.glob(common.DEFAULT_CERTS_PATTERN, recursive=True)
+                    ):
+                    if os.path.isdir(path):
+                        continue
+                    print(f'  {common.path_rel_to_home_if_inside(path)}')
+                    empty = False
+                if empty:
+                    print('  [none]')
+
+                print('')
+
+            if parsed_args.keyfiles:
+                print('Private keys:')
+
+                empty: bool = True
+                for filename in sorted(os.listdir(common.KEYS_PATH)):
+                    path: str = os.path.join(common.KEYS_PATH, filename)
+                    if os.path.isdir(path):
+                        continue
+                    print(f'  {common.path_rel_to_home_if_inside(path)}')
+                    empty = False
+                if empty:
+                    print('  [none]')
+
+                print('')
+
+            parser.exit(0)
+
+
+        case _:
+            parser.print_usage()
+            error(parser, 'Missing subcommand; use -h/--help for help',
+                2)
+
+
 
 # MAIN
 
@@ -527,4 +786,5 @@ __all__ = [
     'error',
 
     'whisper',
+    'whisper_certs',
 ]
