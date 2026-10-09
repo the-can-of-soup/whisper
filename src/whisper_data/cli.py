@@ -396,7 +396,8 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         help='Corresponding certificate chain for our keyfile. Ignored if the keyfile'
             + ' has an embedded cert chain; may be omitted in that case. Default:'
             + ' `~/.whisper/certs/primary.crt`')
-    tls_options.add_argument('--unsecure', action='store_true',
+    tls_options.add_argument('--insecure', '--unsecure',
+        action='store_true',
         help='Disable TLS. Only use this if you know what you\'re doing.')
 
     general_options = parser.add_argument_group(title='general options')
