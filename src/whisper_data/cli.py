@@ -443,7 +443,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     trusted_certfiles: list[str] | None = (
         None
-            if parsed_args.unsecure
+            if parsed_args.insecure
         else glob.glob(common.DEFAULT_CERTS_PATTERN, recursive=True)
             if parsed_args.certfile is None
         else parsed_args.certfile
