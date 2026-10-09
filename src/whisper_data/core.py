@@ -249,6 +249,9 @@ class Whisperer(abc.ABC):
         :raise websockets.exceptions.ConnectionClosed: If the connection is closed.
         """
 
+        # TODO: Send keepalive pings in a separate thread so that blocking streams (e.g.
+        #   stdin in a terminal) do not cause a disconnect
+
         def frame_iter() -> Iterator[bytes]:
             while True:
                 frame: bytes = stream.read(self._max_send_frame_size)
