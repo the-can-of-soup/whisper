@@ -43,6 +43,11 @@ class TCPHandshakeFailed(OSError):
     TCP handshake failed.
     """
 
+class InvalidURI(ValueError):
+    """
+    Invalid URI.
+    """
+
 
 class Whisperer(abc.ABC):
     """
@@ -219,7 +224,7 @@ class Whisperer(abc.ABC):
 
         :return: The new WebSocket connection.
         :rtype: WebsocketConnection
-        :raise websockets.exceptions.InvalidURI: If the provided URI is invalid.
+        :raise InvalidURI: If the provided URI is invalid.
         :raise WaitForConnectionTimeout: If the timeout set by ``self.timeout`` expires.
             Note that this exception type is also a subclass of ``TimeoutError``.
         :raise TCPHandshakeFailed: If the TCP handshake fails.
@@ -517,6 +522,9 @@ class Client(Whisperer):
                 raise
 
             raise TCPHandshakeFailed(common.format_exc(exc)) from None
+
+        except (websockets.exceptions.InvalidURI, ValueError) as exc:
+            raise InvalidURI(common.format_exc(exc)) from None
 
         assert self._conn is not None
         return self._conn

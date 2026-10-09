@@ -497,10 +497,10 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     try:
         asyncio.run(perform_stream())
-    except websockets.exceptions.InvalidURI:
-        error(parser, 'Invalid WebSocket URI', 4)
+    except core.InvalidURI as exc:
+        error(parser, exc, 4)
     except core.WaitForConnectionTimeout:
-        error(parser, 'Client did not connect within timeout period',
+        error(parser, 'Client did not connect within the timeout period',
             7)
     except (core.TCPHandshakeFailed, websockets.exceptions.InvalidHandshake,
             TimeoutError) as exc:
