@@ -8,7 +8,7 @@ build-backend = "flit_core.buildapi"
 [tool.flit.sdist]
 
 # README.md, LICENSE.txt, pyproject.toml, .gitignore, and src are automatically included
-include = []
+include = ['build.zsh', 'install.zsh']
 
 
 [project]
