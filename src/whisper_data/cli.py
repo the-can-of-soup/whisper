@@ -21,6 +21,7 @@ import getpass
 import math
 import glob
 import time
+import tqdm
 import sys
 import ssl
 import os
@@ -442,6 +443,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     whisperer: core.Whisperer
     is_sender: bool = parsed_args.recv_to is None
+    is_quiet: bool = parsed_args.quiet or parsed_args.recv_to is sys.stdout.buffer
 
     trusted_certfiles: list[str] | None = (
         None
@@ -483,19 +485,50 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         error(parser, exc, 9)
 
 
+    # Progress bar
+
+    bar: tqdm.tqdm | None = None
+    progress: int = 0
+
+    if not is_quiet:
+        bar_max: int | None = None
+        if is_sender and parsed_args.send_from is not sys.stdin.buffer:
+            bar_max = os.fstat(parsed_args.send_from.fileno()).st_size
+
+        bar = tqdm.tqdm(total=bar_max, unit='B')
+
+    def update_progress_bar(new_progress: int) -> None:
+        nonlocal bar
+        nonlocal progress
+
+        if bar is not None:
+            bar.update(new_progress - progress)
+        progress = new_progress
+
+
     # Stream data
 
     async def perform_stream() -> None:
         nonlocal parsed_args
         nonlocal whisperer
         nonlocal is_sender
+        nonlocal bar
 
-        # TODO: Print progress to stdout unless `-q` or `-r -` is given
-        if is_sender:
-            await whisperer.connect_and_send_stream(parsed_args.send_from)
-        else:
-            async for frame in whisperer.connect_and_recv_stream():
-                parsed_args.recv_to.write(frame)
+        try:
+            if is_sender:
+                # Send
+                await whisperer.connect_and_send_stream(
+                    parsed_args.send_from, progress_callback=update_progress_bar,
+                )
+            else:
+                # Receive
+                async for frame in whisperer.connect_and_recv_stream():
+                    parsed_args.recv_to.write(frame)
+                    update_progress_bar(progress + len(frame))
+
+        finally:
+            if bar is not None:
+                bar.close()
 
     try:
         asyncio.run(perform_stream())

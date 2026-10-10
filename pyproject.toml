@@ -44,6 +44,7 @@ classifiers = [
 
 dependencies = [
     "websockets ~= 17.1",
+    "tqdm ~= 4.70.1",
 ]
 requires-python = ">= 3.14"
 

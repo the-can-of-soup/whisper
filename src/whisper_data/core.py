@@ -11,7 +11,7 @@ Backend definitions.
 
 from __future__ import annotations
 
-from collections.abc import Sequence, Iterator, AsyncIterator
+from collections.abc import Sequence, Iterator, AsyncIterator, Callable
 import websockets.asyncio.server
 import websockets.asyncio.client
 from typing import Literal, Any
@@ -245,12 +245,16 @@ class Whisperer(abc.ABC):
     async def send_stream(
             self,
             stream: BufferedReader,
+            progress_callback: Callable[[int], Any] | None = None,
         ) -> None:
         """
         Send a stream to the peer.
 
         :param stream: Binary stream, e.g. a file opened in ``rb`` mode.
         :type stream: BufferedReader
+        :param progress_callback: Called after each frame is sent with one argument
+            ``sent``, the total number of bytes sent so far.
+        :type progress_callback: Callable[[int], Any] | None
         :raise websockets.exceptions.ConnectionClosed: If the connection is closed.
         """
 
@@ -258,11 +262,17 @@ class Whisperer(abc.ABC):
         #   stdin in a terminal) do not cause a disconnect
 
         def frame_iter() -> Iterator[bytes]:
+            sent: int = 0
+
             while True:
                 frame: bytes = stream.read(self._max_send_frame_size)
                 if len(frame) == 0:
                     return # EOF
+
                 yield frame
+                sent += len(frame)
+                if progress_callback is not None:
+                    progress_callback(sent)
 
         assert self._conn is not None
         await self._conn.send(frame_iter(), text=False)
@@ -284,6 +294,7 @@ class Whisperer(abc.ABC):
     async def connect_and_send_stream(
             self,
             stream: BufferedReader,
+            progress_callback: Callable[[int], Any] | None = None,
         ) -> None:
         """
         Perform all necessary setup, wait for a connection, and send a stream to the
@@ -295,13 +306,16 @@ class Whisperer(abc.ABC):
 
         :param stream: Binary stream, e.g. a file opened in ``rb`` mode.
         :type stream: BufferedReader
+        :param progress_callback: Called after each frame is sent with one argument
+            ``sent``, the total number of bytes sent so far.
+        :type progress_callback: Callable[[int], Any] | None
         :raise websockets.exceptions.ConnectionClosed: If the connection is closed.
         """
 
         await self.prepare_for_connection()
         await self.connect()
 
-        await self.send_stream(stream)
+        await self.send_stream(stream, progress_callback=progress_callback)
         await self.close()
 
 
