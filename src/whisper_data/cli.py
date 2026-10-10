@@ -495,7 +495,15 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         if is_sender and parsed_args.send_from is not sys.stdin.buffer:
             bar_max = os.fstat(parsed_args.send_from.fileno()).st_size
 
-        bar = tqdm.tqdm(total=bar_max, unit='B')
+        bar = tqdm.tqdm(
+            total=bar_max,
+            leave=False,
+            disable=None,
+            unit='B',
+            unit_scale=True,
+            dynamic_ncols=True,
+            desc='Send' if is_sender else 'Recv',
+        )
 
     def update_progress_bar(new_progress: int) -> None:
         nonlocal bar
