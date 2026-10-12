@@ -63,6 +63,7 @@ class Whisperer(abc.ABC):
             trusted_certfiles: Sequence[str] | None = None,
             keyfile: str = common.DEFAULT_KEY_PATH,
             key_certfile: str | None = None,
+            connected_callback: Callable[[], Any] | None = None,
         ) -> None:
         """
         :param max_recv_size: Maximum accepted size of received data, or ``None`` for no
@@ -83,6 +84,10 @@ class Whisperer(abc.ABC):
             ``keyfile`` contains an embedded certificate, and may be ``None`` in that
             case.
         :type key_certfile: str | None
+        :param connected_callback: Function to call immediately after a connection is
+            established. Connection handling will not continue until this callback
+            returns.
+        :type connected_callback: Callable[[], Any] | None
         :raise ssl.SSLError: If the provided key or certificates are invalid.
         :raise OSError: If a file could not be read.
         :raise UnicodeDecodeError: If a file could not be decoded to Unicode.
@@ -95,6 +100,7 @@ class Whisperer(abc.ABC):
         self._trusted_certfiles: Sequence[str] | None = trusted_certfiles
         self._keyfile: str = keyfile
         self._key_certfile: str | None = key_certfile
+        self._connected_callback: Callable[[], None] | None = connected_callback
 
         self._tls: ssl.SSLContext | None = None
 
@@ -136,6 +142,52 @@ class Whisperer(abc.ABC):
         :rtype: int
         """
         return self._max_send_frame_size
+
+
+    @property
+    def trusted_certfiles(self) -> Sequence[str] | None:
+        """
+        Sequence of paths to trusted certificate files, or ``None`` if TLS is disabled.
+
+        :rtype: Sequence[str] | None
+        """
+        return self._trusted_certfiles
+
+
+    @property
+    def keyfile(self) -> str:
+        """
+        Path to our keyfile for TLS.
+
+        :rtype: str
+        """
+        return self._keyfile
+
+
+    @property
+    def key_certfile(self) -> str | None:
+        """
+        Path to our certificate file for TLS. Has no effect if ``keyfile`` contains an
+        embedded certificate, and may be ``None`` in that case.
+
+        :rtype: str | None
+        """
+        return self._key_certfile
+
+
+    @property
+    def connected_callback(self) -> Callable[[], None] | None:
+        """
+        Function to call immediately after a connection is established. Connection
+        handling will not continue until this callback returns.
+
+        :rtype: Callable[[], None] | None
+        """
+        return self._connected_callback
+
+    @connected_callback.setter
+    def connected_callback(self, value: Callable[[], None] | None) -> None:
+        self._connected_callback = value
 
 
     @property
@@ -220,7 +272,8 @@ class Whisperer(abc.ABC):
     @abstractmethod
     async def connect(self) -> WebsocketConnection:
         """
-        Wait for a connection, update ``self.conn``, and return it.
+        Wait for a connection, update ``self.conn``, and return it. Call
+        ``self.connected_callback`` once complete.
 
         :return: The new WebSocket connection.
         :rtype: WebsocketConnection
@@ -459,6 +512,8 @@ class Server(Whisperer):
         try:
             async with asyncio.timeout(self._timeout):
                 await self._conn_created.wait()
+
+                self.connected_callback()
                 assert self._conn is not None
                 return self._conn
 
@@ -540,6 +595,7 @@ class Client(Whisperer):
         except (websockets.exceptions.InvalidURI, ValueError) as exc:
             raise InvalidURI(common.format_exc(exc)) from None
 
+        self.connected_callback()
         assert self._conn is not None
         return self._conn
 

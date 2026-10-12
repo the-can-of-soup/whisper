@@ -495,20 +495,27 @@ def whisper(args: Sequence[str] | None = None) -> Never:
     bar: tqdm.tqdm | None = None
     progress: int = 0
 
-    if not is_quiet:
-        bar_max: int | None = None
-        if is_sender and parsed_args.send_from is not sys.stdin.buffer:
-            bar_max = os.fstat(parsed_args.send_from.fileno()).st_size
+    def connected() -> None:
+        nonlocal bar
 
-        bar = tqdm.tqdm(
-            total=bar_max,
-            leave=False,
-            disable=None,
-            unit='B',
-            unit_scale=True,
-            dynamic_ncols=True,
-            desc='Send' if is_sender else 'Recv',
-        )
+        if not is_quiet:
+            print('Connected')
+
+            bar_max: int | None = None
+            if is_sender and parsed_args.send_from is not sys.stdin.buffer:
+                bar_max = os.fstat(parsed_args.send_from.fileno()).st_size
+
+            bar = tqdm.tqdm(
+                total=bar_max,
+                leave=False,
+                disable=None,
+                unit='B',
+                unit_scale=True,
+                dynamic_ncols=True,
+                desc='Send' if is_sender else 'Recv',
+            )
+
+    whisperer.connected_callback = connected
 
     def update_progress_bar(new_progress: int) -> None:
         nonlocal bar
@@ -543,6 +550,12 @@ def whisper(args: Sequence[str] | None = None) -> Never:
             if bar is not None:
                 bar.close()
 
+    if not is_quiet:
+        if parsed_args.serve:
+            print(f'Listening on port {parsed_args.port}')
+        else:
+            print('Connecting')
+
     try:
         asyncio.run(perform_stream())
     except core.InvalidURI as exc:
@@ -557,6 +570,9 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         error(parser, exc, 8)
     except ssl.SSLError as exc:
         error(parser, exc, 10)
+
+    if not is_quiet:
+        print('Connection closed')
 
 
     parser.exit(0)
@@ -774,8 +790,7 @@ def whisper_certs(args: Sequence[str] | None = None) -> Never:
         case 'list':
             neither: bool = not (parsed_args.certfiles or parsed_args.keyfiles)
             # if neither:
-            #     error(parser, '-c/--certfiles and/or -k/--keyfiles must be'
-            #         + ' specified', 2)
+            #     error(parser, '-c/--certfiles and/or -k/--keyfiles must be specified', 2)
 
             if parsed_args.certfiles or neither:
                 print('Default trusted certificates:')
