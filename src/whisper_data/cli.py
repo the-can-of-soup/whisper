@@ -2,8 +2,6 @@
 Command-line interface.
 """
 
-# TODO: Fix ~0.5s delay likely caused by imports
-
 
 
 # IMPORTS
@@ -12,22 +10,15 @@ from __future__ import annotations
 
 from typing import SupportsInt, SupportsFloat, Never, BinaryIO, Any
 from collections.abc import Sequence, Callable
-import websockets.exceptions
-import subprocess
 import argparse
 import tempfile
-import asyncio
-import getpass
 import math
 import glob
 import time
-import tqdm
 import sys
-import ssl
 import os
 
 from . import common
-from . import core
 
 
 
@@ -451,6 +442,16 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         parser.exit(0)
 
 
+    # Heavy imports
+
+    import websockets.exceptions
+    import asyncio
+    import tqdm
+    import ssl
+
+    from . import core
+
+
     # Configure
 
     common.ensure_dirs()
@@ -605,6 +606,12 @@ def whisper_certs(args: Sequence[str] | None = None) -> Never:
     :param args: Command-line arguments, or ``None`` to pull from ``sys.argv``.
     :type args: Sequence[str] | None
     """
+
+
+    # Heavy-ish imports
+
+    import subprocess
+    import getpass
 
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
