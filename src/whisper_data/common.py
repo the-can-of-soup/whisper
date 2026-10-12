@@ -18,7 +18,7 @@ import os
 
 DESCRIPTION: str = ('A simple command-line utility to securely transfer files or data'
     + ' over WebSocket.') # Update __init__.py docstring too!
-VERSION: str = '0.4.2' # Major version 0 is alpha
+VERSION: str = '1.0.0'
 
 CERTS_PATH: str = os.path.expanduser('~/.whisper/certs')
 KEYS_PATH: str = os.path.expanduser('~/.whisper/keys')
