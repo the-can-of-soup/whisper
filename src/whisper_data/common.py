@@ -7,6 +7,7 @@ Common definitions.
 # IMPORTS
 
 import traceback
+import platform
 import stat
 import os
 
@@ -39,7 +40,10 @@ def ensure_dirs() -> None:
 
     if not os.path.isdir(KEYS_PATH):
         os.makedirs(KEYS_PATH)
-        os.chmod(KEYS_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR) # TODO: Windows support
+
+        # Make keys directory only accessible by its owner on Unix
+        if platform.system() != 'Windows':
+            os.chmod(KEYS_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 
 def format_exc(exc: Exception) -> str:
