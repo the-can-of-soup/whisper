@@ -16,8 +16,8 @@ import os
 
 # CONSTANTS
 
-DESCRIPTION: str = ('Transfer data through a secure one-way stream over WebSocket with'
-    + ' one peer hosting an ephemeral server.') # Update __init__.py docstring too!
+DESCRIPTION: str = ('A simple command-line utility to securely transfer files or data'
+    + ' over WebSocket.') # Update __init__.py docstring too!
 VERSION: str = '0.4.2' # Major version 0 is alpha
 
 CERTS_PATH: str = os.path.expanduser('~/.whisper/certs')

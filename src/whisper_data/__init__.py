@@ -1,6 +1,5 @@
 """
-Transfer data through a secure one-way stream over WebSocket with one peer hosting an
-ephemeral server.
+A simple command-line utility to securely transfer files or data over WebSocket.
 """
 # Sync _common.DESCRIPTION to this docstring too!
 
