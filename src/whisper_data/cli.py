@@ -377,13 +377,19 @@ def whisper(args: Sequence[str] | None = None) -> Never:
     recv_options = parser.add_argument_group(title='receive options',
         description='These options only have an effect if `-r` is specified.')
     recv_options.add_argument('-m', '--max-size',
-        type=or_special(data_size, 'none'), default=data_size('128M'),
+        type=or_special(lambda arg: int_within(256, None)(data_size(arg)),
+            'none'),
+        default=data_size('128M'),
         help='Maximum accepted total size of received data, or `none` for no limit.'
             + ' Default: `128M`')
-    recv_options.add_argument('-M', '--max-frame-size', type=data_size,
+    recv_options.add_argument('-M', '--max-frame-size',
+        type=lambda arg: int_within(256, None)(data_size(arg)),
         default=data_size('128K'),
         help='Maximum accepted size of individual received frames (chunks).'
             + ' Default: `128K`')
+    recv_options.add_argument('-F', '--flush-out-each-frame',
+        action='store_true',
+        help='Flush the output after each frame is received.')
 
     tls_options = parser.add_argument_group(title='TLS options')
     tls_options.add_argument('-C', '--certfile',
@@ -467,9 +473,9 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         ]
 
     kwargs: dict[str, Any] = {
-        'max_recv_size': 0 if is_sender
+        'max_recv_size': 256 if is_sender # 256 bytes are permitted for keepalive pings
             else (None if parsed_args.max_size == 'none' else parsed_args.max_size),
-        'max_recv_frame_size': 0 if is_sender else parsed_args.max_frame_size,
+        'max_recv_frame_size': 256 if is_sender else parsed_args.max_frame_size,
         'max_send_frame_size': parsed_args.send_frame_size,
         'trusted_certfiles': trusted_certfiles,
         'keyfile': parsed_args.keyfile,
@@ -548,6 +554,8 @@ def whisper(args: Sequence[str] | None = None) -> Never:
                 # Receive
                 async for frame in whisperer.connect_and_recv_stream():
                     parsed_args.recv_to.write(frame)
+                    if parsed_args.flush_out_each_frame:
+                        parsed_args.recv_to.flush()
                     update_progress_bar(bytes_transferred + len(frame))
 
         finally:

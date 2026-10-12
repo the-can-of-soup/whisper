@@ -11,7 +11,7 @@ Backend definitions.
 
 from __future__ import annotations
 
-from collections.abc import Sequence, Iterator, AsyncIterator, Callable
+from collections.abc import Sequence, AsyncIterator, Callable
 import websockets.asyncio.server
 import websockets.asyncio.client
 from typing import Literal, Any
@@ -80,10 +80,12 @@ class Whisperer(abc.ABC):
         ) -> None:
         """
         :param max_recv_size: Maximum accepted size of received data, or ``None`` for no
-            limit. Should be zero if we are sending a stream rather than receiving one.
+            limit. Should be at least 256, and exactly 256 if we are sending a stream
+            rather than receiving one.
         :type max_recv_size: int | None
         :param max_recv_frame_size: Maximum accepted size of individual received frames.
-            Should be zero if we are sending a stream rather than receiving one.
+            Should be at least 256, and exactly 256 if we are sending a stream rather
+            than receiving one.
         :type max_recv_frame_size: int
         :param max_send_frame_size: Maximum size of the individual frames sent to the
             peer. Has no effect if we are receiving a stream rather than sending one.
@@ -131,8 +133,8 @@ class Whisperer(abc.ABC):
     @property
     def max_recv_size(self) -> int | None:
         """
-        Maximum accepted size of received data, or ``None`` for no limit. Should be zero
-        if we are sending a stream rather than receiving one.
+        Maximum accepted size of received data, or ``None`` for no limit. Should be at
+        least 256, and exactly 256 if we are sending a stream rather than receiving one.
 
         :rtype: int | None
         """
@@ -142,8 +144,8 @@ class Whisperer(abc.ABC):
     @property
     def max_recv_frame_size(self) -> int:
         """
-        Maximum accepted size of individual received frames. Should be zero if we are
-        sending a stream rather than receiving one.
+        Maximum accepted size of individual received frames. Should be at least 256, and
+        exactly 256 if we are sending a stream rather than receiving one.
 
         :rtype: int
         """
@@ -340,14 +342,13 @@ class Whisperer(abc.ABC):
         :raise websockets.exceptions.ConnectionClosed: If the connection is closed.
         """
 
-        # TODO: Send keepalive pings in a separate thread so that blocking streams (e.g.
-        #   stdin in a terminal) do not cause a disconnect
-
-        def frame_iter() -> Iterator[bytes]:
+        async def frame_iter() -> AsyncIterator[bytes]:
             sent: int = 0
 
             while True:
-                frame: bytes = stream.read(self._max_send_frame_size)
+                frame: bytes = await asyncio.to_thread(
+                    lambda: stream.read(self._max_send_frame_size)
+                )
                 if len(frame) == 0:
                     return # EOF
 
@@ -546,7 +547,7 @@ class Server(Whisperer):
             host=None if self.interfaces == '*' else self.interfaces,
             port=self.port,
             max_size=(self.max_recv_size, self.max_recv_frame_size),
-            compression='deflate', # TODO: Maybe set `compression` to `None`
+            compression=None,
             ssl=self.tls,
             start_serving=True,
         )
@@ -631,7 +632,7 @@ class Client(Whisperer):
         try:
             self._conn = await websockets.asyncio.client.connect(
                 self.remote_uri,
-                compression='deflate', # TODO: Maybe set `compression` to `None`
+                compression=None,
                 max_size=(self._max_recv_size, self._max_recv_frame_size),
                 ssl=self.tls,
             )
