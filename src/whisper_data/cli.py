@@ -567,7 +567,13 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     if not is_quiet:
         if parsed_args.serve:
-            print(f'Listening on port {parsed_args.port}')
+            interfaces_str: str
+            if isinstance(parsed_args.interfaces, list):
+                interfaces_str = ', '.join(parsed_args.interfaces)
+            else:
+                interfaces_str = parsed_args.interfaces
+
+            print(f'Listening on port {parsed_args.port} on {interfaces_str}')
         else:
             print(f'Connecting to {parsed_args.connect_to}')
 
