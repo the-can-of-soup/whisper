@@ -346,7 +346,8 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         help='Connect to the server at `REMOTE_URI`.')
     mode_options_ex.add_argument('-h', '--help', action='store_true',
         help='Print this help and exit.')
-    # TODO: Add `-v`/`--version` option that prints common.VERSION and exits
+    mode_options_ex.add_argument('-v', '--version', action='store_true',
+        help='Print version information and exit.')
 
     server_options = parser.add_argument_group(title='server options',
         description='These options only have an effect if `-s` is specified.')
@@ -434,6 +435,10 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     if parsed_args.help:
         parser.print_help()
+        parser.exit(0)
+
+    elif parsed_args.version:
+        print(f'{parser.prog} v{common.VERSION}')
         parser.exit(0)
 
 
