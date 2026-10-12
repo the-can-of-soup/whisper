@@ -51,9 +51,9 @@ requires-python = ">= 3.14"
 
 [project.urls]
 
-Homepage = "https://pypi.org/project/whisper_data"
-GitHub = "https://github.com/the-can-of-soup/whisper_data"
-Issues = "https://github.com/the-can-of-soup/whisper_data/issues"
+Homepage = "https://pypi.org/project/whisper-data"
+GitHub = "https://github.com/the-can-of-soup/whisper-data"
+Issues = "https://github.com/the-can-of-soup/whisper-data/issues"
 
 
 # Shell command configuration
