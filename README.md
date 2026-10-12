@@ -1,5 +1,7 @@
 # Whisper
 
+[![PyPI Version](https://img.shields.io/pypi/v/whisper-data?style=for-the-badge&logo=pypi&logoColor=fff)](https://pypi.org/project/whisper-data) [![GitHub Repo stars](https://img.shields.io/github/stars/the-can-of-soup/whisper?style=for-the-badge&logo=github&color=e3b341&label=GitHub)](https://github.com/the-can-of-soup/whisper)
+
 A simple command-line utility to securely transfer files or data over WebSocket. Useful for one-time file transfers between devices, especially for large files or over the internet.
 
 

@@ -13,7 +13,7 @@ include = ['build.zsh', 'install.zsh']
 
 [project]
 
-name = "whisper_data"
+name = "whisper-data"
 authors = [{name = "the-can-of-soup"}]
 dynamic = ["version", "description"]
 keywords = ["whisper", "data", "transfer", "file", "message", "cli",
