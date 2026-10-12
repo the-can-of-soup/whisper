@@ -6,6 +6,7 @@ Common definitions.
 
 # IMPORTS
 
+from typing import Any
 import traceback
 import platform
 import stat
@@ -17,7 +18,7 @@ import os
 
 DESCRIPTION: str = ('Transfer data through a secure one-way stream over WebSocket with'
     + ' one peer hosting an ephemeral server.') # Update __init__.py docstring too!
-VERSION: str = '0.2.0' # Major version 0 is alpha
+VERSION: str = '0.3.0' # Major version 0 is alpha
 
 CERTS_PATH: str = os.path.expanduser('~/.whisper/certs')
 KEYS_PATH: str = os.path.expanduser('~/.whisper/keys')
@@ -78,6 +79,30 @@ def path_rel_to_home_if_inside(path: str) -> str:
     return path
 
 
+def cert_matches(cert_info: dict[str, Any], name: str | None) -> bool:
+    """
+    Return ``True`` if ``cert_info`` matches the given subject common ``name``.
+
+    :param cert_info: Return value of ``ssl.SSLSocket.getpeercert``.
+    :type cert_info: dict[str, Any]
+    :param name: Name to match against the certificate's common name, or ``None`` to
+        always return ``True``.
+    :type name: str | None
+    :rtype: bool
+    """
+
+    if name is None:
+        return True
+    if 'subject' not in cert_info:
+        return False
+
+    for rdn in cert_info['subject']:
+        for attr, value in rdn:
+            if attr == 'commonName' and value == name:
+                return True
+    return False
+
+
 
 # EXPORTS
 
@@ -95,4 +120,5 @@ __all__ = [
     'ensure_dirs',
     'format_exc',
     'path_rel_to_home_if_inside',
+    'cert_matches',
 ]

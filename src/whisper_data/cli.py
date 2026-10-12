@@ -400,6 +400,8 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         help='Corresponding certificate chain for our keyfile. Ignored if the keyfile'
             + ' has an embedded cert chain; may be omitted in that case. Default:'
             + ' `~/.whisper/certs/primary.crt`')
+    tls_options.add_argument('-w', '--who', metavar='NAME',
+        help='Only accept certificates with this common name.')
     tls_options.add_argument('--insecure', '--unsecure',
         action='store_true',
         help='Disable TLS. Only use this if you know what you\'re doing.')
@@ -424,7 +426,8 @@ def whisper(args: Sequence[str] | None = None) -> Never:
             + ' Argument parsing failure; 3: File I/O error; 4: Bad URI; 5: Initial'
             + ' connection failure; 6: Serving failure; 7: Timeout while waiting for'
             + ' connection; 8: Connection broken; 9: Failure loading TLS certs/key; 10:'
-            + ' Other TLS error.')
+            + ' Peer\'s certificate did not match `--who`; 11; Our certificate did not'
+            + ' match the peer\'s `--who`; 12: Other TLS error.')
 
 
     try:
@@ -471,6 +474,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         'trusted_certfiles': trusted_certfiles,
         'keyfile': parsed_args.keyfile,
         'key_certfile': parsed_args.key_certfile,
+        'peer_name': parsed_args.who,
     }
 
     try:
@@ -493,7 +497,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
     # Progress bar
 
     bar: tqdm.tqdm | None = None
-    progress: int = 0
+    bytes_transferred: int = 0
 
     def connected() -> None:
         nonlocal bar
@@ -519,11 +523,11 @@ def whisper(args: Sequence[str] | None = None) -> Never:
 
     def update_progress_bar(new_progress: int) -> None:
         nonlocal bar
-        nonlocal progress
+        nonlocal bytes_transferred
 
         if bar is not None:
-            bar.update(new_progress - progress)
-        progress = new_progress
+            bar.update(new_progress - bytes_transferred)
+        bytes_transferred = new_progress
 
 
     # Stream data
@@ -544,7 +548,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
                 # Receive
                 async for frame in whisperer.connect_and_recv_stream():
                     parsed_args.recv_to.write(frame)
-                    update_progress_bar(progress + len(frame))
+                    update_progress_bar(bytes_transferred + len(frame))
 
         finally:
             if bar is not None:
@@ -554,7 +558,7 @@ def whisper(args: Sequence[str] | None = None) -> Never:
         if parsed_args.serve:
             print(f'Listening on port {parsed_args.port}')
         else:
-            print('Connecting')
+            print(f'Connecting to {parsed_args.connect_to}')
 
     try:
         asyncio.run(perform_stream())
@@ -567,12 +571,20 @@ def whisper(args: Sequence[str] | None = None) -> Never:
             TimeoutError) as exc:
         error(parser, exc, 5)
     except websockets.exceptions.ConnectionClosed as exc:
+        if exc.rcvd is not None and exc.rcvd.code == core.WRONG_CERTIFICATE_CLOSE_CODE:
+            error(parser, 'Peer did not accept our certificate\'s common'
+                + ' name', 11)
         error(parser, exc, 8)
-    except ssl.SSLError as exc:
+    except core.WrongCertificate as exc:
         error(parser, exc, 10)
+    except ssl.SSLError as exc:
+        error(parser, exc, 12)
 
     if not is_quiet:
-        print('Connection closed')
+        if is_sender:
+            print(f'{bytes_transferred:,} bytes sent')
+        else:
+            print(f'{bytes_transferred:,} bytes written to {parsed_args.recv_to.name}')
 
 
     parser.exit(0)
@@ -634,8 +646,8 @@ def whisper_certs(args: Sequence[str] | None = None) -> Never:
 
     cert_options = create_parser.add_argument_group(title='certificate options')
     cert_options.add_argument('-o', '--owner',
-        help='Issuer/issuee name to put on the certificate. Default: current effective'
-            + ' username')
+        help='Issuer/issuee name to put on the certificate; may be filtered for in the'
+            + ' `whisper` command using `--who`. Default: current effective username')
     cert_options.add_argument('-E', '--expire-in', metavar='DAYS',
         type=int_within(1, None), default=365,
         help='Days until the certificate expires. Default: `365`')

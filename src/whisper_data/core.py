@@ -26,6 +26,12 @@ from . import common
 
 
 
+# CONSTANTS
+
+WRONG_CERTIFICATE_CLOSE_CODE: int = 4000
+
+
+
 # DEFINITIONS
 
 
@@ -48,6 +54,12 @@ class InvalidURI(ValueError):
     Invalid URI.
     """
 
+class WrongCertificate(RuntimeError):
+    """
+    The peer provided a valid trusted certificate, but it did not match the expected
+    common name.
+    """
+
 
 class Whisperer(abc.ABC):
     """
@@ -63,6 +75,7 @@ class Whisperer(abc.ABC):
             trusted_certfiles: Sequence[str] | None = None,
             keyfile: str = common.DEFAULT_KEY_PATH,
             key_certfile: str | None = None,
+            peer_name: str | None = None,
             connected_callback: Callable[[], Any] | None = None,
         ) -> None:
         """
@@ -84,6 +97,9 @@ class Whisperer(abc.ABC):
             ``keyfile`` contains an embedded certificate, and may be ``None`` in that
             case.
         :type key_certfile: str | None
+        :param peer_name: If provided, the peer's certificate common name must match
+            this.
+        :type peer_name: str | None
         :param connected_callback: Function to call immediately after a connection is
             established. Connection handling will not continue until this callback
             returns.
@@ -100,6 +116,7 @@ class Whisperer(abc.ABC):
         self._trusted_certfiles: Sequence[str] | None = trusted_certfiles
         self._keyfile: str = keyfile
         self._key_certfile: str | None = key_certfile
+        self._peer_name: str | None = peer_name
         self._connected_callback: Callable[[], None] | None = connected_callback
 
         self._tls: ssl.SSLContext | None = None
@@ -176,6 +193,16 @@ class Whisperer(abc.ABC):
 
 
     @property
+    def peer_name(self) -> str | None:
+        """
+        If not ``None``, the peer's certificate common name must match this.
+
+        :rtype: str | None
+        """
+        return self._peer_name
+
+
+    @property
     def connected_callback(self) -> Callable[[], None] | None:
         """
         Function to call immediately after a connection is established. Connection
@@ -236,7 +263,7 @@ class Whisperer(abc.ABC):
         assert self._tls is not None
 
         # Set TLS options
-        self._tls.check_hostname = False # TODO: Decide about this
+        self._tls.check_hostname = False
         self._tls.verify_mode = ssl.CERT_REQUIRED
 
         # Load trusted certificates
@@ -282,6 +309,8 @@ class Whisperer(abc.ABC):
             Note that this exception type is also a subclass of ``TimeoutError``.
         :raise TCPHandshakeFailed: If the TCP handshake fails.
         :raise websockets.exceptions.InvalidHandshake: If the WebSocket handshake fails.
+        :raise WrongCertificate: If the peer provides a trusted certificate that does
+            not match ``self.peer_name``.
         :raise TimeoutError: If the WebSocket handshake times out.
         :raise ssl.SSLError: If the TLS connection fails.
         """
@@ -431,7 +460,8 @@ class Server(Whisperer):
 
         # State
         self._server: websockets.asyncio.server.Server | None = None
-        self._conn_created: asyncio.Event = asyncio.Event()
+        self._conn_created_or_err: asyncio.Event = asyncio.Event()
+        self._create_conn_err: Exception | None = None
 
 
     @property
@@ -483,13 +513,29 @@ class Server(Whisperer):
         # Create and start server
 
         async def server_handler(conn: websockets.asyncio.server.ServerConnection) -> None:
+            # Ensure only one connection
             if self._conn is not None:
                 # A connection already exists; reject this one
                 await conn.close(websockets.CloseCode.TRY_AGAIN_LATER)
                 return
 
+            # Ensure certificate matches
+            if self.tls is not None:
+                ssl_obj: ssl.SSLObject = conn.transport.get_extra_info('ssl_object')
+                cert_info: dict[str, Any] | None = ssl_obj.getpeercert()
+                assert cert_info is not None
+
+                # noinspection unresolved-references
+                if not common.cert_matches(cert_info, self.peer_name):
+                    # Peer certificate name does not match expected
+                    await conn.close(WRONG_CERTIFICATE_CLOSE_CODE)
+                    # self._create_conn_err = WrongCertificate('Peer\'s certificate did'
+                    #     + f' not match common name {self.peer_name!r}')
+                    # self._conn_created_or_err.set()
+                    return
+
             self._conn = conn
-            self._conn_created.set()
+            self._conn_created_or_err.set()
 
             assert self._conn is not None
             await self._conn.wait_closed()
@@ -511,7 +557,10 @@ class Server(Whisperer):
 
         try:
             async with asyncio.timeout(self._timeout):
-                await self._conn_created.wait()
+                await self._conn_created_or_err.wait()
+
+                if self._create_conn_err is not None:
+                    raise self._create_conn_err
 
                 self.connected_callback()
                 assert self._conn is not None
@@ -526,7 +575,7 @@ class Server(Whisperer):
         if self._conn is not None:
             await self._conn.close(websockets.CloseCode.GOING_AWAY)
         self._conn = None
-        self._conn_created.clear()
+        self._conn_created_or_err.clear()
 
         # Close server
         if self._server is not None:
@@ -578,6 +627,7 @@ class Client(Whisperer):
 
 
     async def connect(self) -> WebsocketConnection:
+        # Connect
         try:
             self._conn = await websockets.asyncio.client.connect(
                 self.remote_uri,
@@ -595,8 +645,24 @@ class Client(Whisperer):
         except (websockets.exceptions.InvalidURI, ValueError) as exc:
             raise InvalidURI(common.format_exc(exc)) from None
 
-        self.connected_callback()
         assert self._conn is not None
+
+        # Ensure certificate matches
+        if self.tls is not None:
+            ssl_obj: ssl.SSLObject = self._conn.transport.get_extra_info('ssl_object')
+            cert_info: dict[str, Any] | None = ssl_obj.getpeercert()
+            assert cert_info is not None
+
+            # noinspection unresolved-references
+            if not common.cert_matches(cert_info, self.peer_name):
+                # Peer certificate name does not match expected
+                await self._conn.close(WRONG_CERTIFICATE_CLOSE_CODE)
+                raise WrongCertificate('Peer\'s certificate did not match common name'
+                    + f' {self.peer_name!r}')
+
+        # Finish
+        self.connected_callback()
+        # noinspection bad-return
         return self._conn
 
 
@@ -610,10 +676,14 @@ class Client(Whisperer):
 # EXPORTS
 
 __all__ = [
+    'WRONG_CERTIFICATE_CLOSE_CODE',
+
     'WebsocketConnection',
 
     'WaitForConnectionTimeout',
     'TCPHandshakeFailed',
+    'InvalidURI',
+    'WrongCertificate',
 
     'Whisperer',
     'Server',
