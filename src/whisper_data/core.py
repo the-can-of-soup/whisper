@@ -2,9 +2,6 @@
 Backend definitions.
 """
 
-# TODO: Prevent likely hang or undefined behavior when both peers attempt to
-#   send/receive
-
 
 
 # IMPORTS
