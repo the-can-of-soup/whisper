@@ -17,7 +17,8 @@ A simple command-line utility to securely transfer files or data over WebSocket.
 
 ### From PyPI
 
-Run: `pip install whisper-data`
+Run: `pip install whisper-data`\
+Alternatively you may use pipx: `pipx install whisper-data`
 
 ### From source (on Unix)
 
