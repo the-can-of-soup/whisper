@@ -2,6 +2,8 @@
 Command-line interface.
 """
 
+# TODO: Hide traceback for KeyboardInterrupts
+
 
 
 # IMPORTS
