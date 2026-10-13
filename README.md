@@ -58,7 +58,7 @@ The server is assumed to have a key `~/.whisper/keys/primary.key` and matching c
 wis --serve bee_movie_script.txt --who clippy
 
 # Client
-wis --connect-to wss://1.2.3.4:8409 --recv-to bee_movie_script.txt --who soup
+wis --connect-to wss://108.51.51.116:8409 --recv-to bee_movie_script.txt --who soup
 ```
 
 ### Transfer a file (client to server)
@@ -69,7 +69,7 @@ Same certificate setup as above.
 wis --serve --recv-to eviction_notice.md --who clippy
 
 # Client
-wis --connect-to wss://1.2.3.4:8409 eviction_notice.md --who soup
+wis --connect-to wss://108.51.51.116:8409 eviction_notice.md --who soup
 ```
 
 
