@@ -16,6 +16,7 @@ from abc import abstractmethod
 from io import BufferedReader
 import websockets
 import asyncio
+import typing
 import abc
 import ssl
 
@@ -32,8 +33,15 @@ WRONG_CERTIFICATE_CLOSE_CODE: int = 4000
 # DEFINITIONS
 
 
-type WebsocketConnection = (websockets.asyncio.server.ServerConnection
-    | websockets.asyncio.client.ClientConnection)
+# Workaround for type alias compatible with pre-3.12
+if typing.TYPE_CHECKING:
+    # noinspection compatibility
+    type WebsocketConnection = (websockets.asyncio.server.ServerConnection
+        | websockets.asyncio.client.ClientConnection)
+else:
+    WebsocketConnection = typing.TypeAliasType('WebsocketConnection',
+        websockets.asyncio.server.ServerConnection
+            | websockets.asyncio.client.ClientConnection)
 
 
 class WaitForConnectionTimeout(TimeoutError):

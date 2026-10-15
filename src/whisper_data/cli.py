@@ -14,6 +14,7 @@ from typing import SupportsInt, SupportsFloat, Never, BinaryIO, Any
 from collections.abc import Sequence, Callable
 import argparse
 import tempfile
+import typing
 import math
 import glob
 import time
@@ -31,6 +32,12 @@ _open_files: list[BinaryIO] = []
 
 
 # DEFINITIONS
+
+
+# Pre-3.12-compatible type vars
+T = typing.TypeVar('T')
+U = typing.TypeVar('U')
+V = typing.TypeVar('V')
 
 
 def int_within(
@@ -188,7 +195,7 @@ def data_size(argument: str) -> int:
     return value
 
 
-def or_special[T, U, V](
+def or_special(
         handler: Callable[[T], U],
         *special: V,
     ) -> Callable[[T], U | V]:
@@ -290,7 +297,8 @@ def _clean_up() -> None:
         file.close()
 
 
-def _finally_cleanup[T, U](func: Callable[T, U]) -> Callable[T, U]:
+# noinspection type-hints
+def _finally_cleanup(func: Callable[T, U]) -> Callable[T, U]:
     def func_with_cleanup(*args, **kwargs) -> U:
         try:
             return func(*args, **kwargs)
@@ -779,10 +787,10 @@ def whisper_certs(args: Sequence[str] | None = None) -> Never:
                 '-new',
                 '-key', keyfile,
                 '-days', str(parsed_args.expire_in),
-                '-subj', f'/CN={owner
+                '-subj', '/CN=' + owner
                     .replace('/', '\\/')
                     .replace('=', '\\=')
-                    .replace('+', '\\+')}',
+                    .replace('+', '\\+'),
                 '-outform', 'PEM',
             ]
 
