@@ -34,8 +34,9 @@ WRONG_CERTIFICATE_CLOSE_CODE: int = 4000
 
 
 # Pre-3.12-compatible type alias
-WebsocketConnection = typing.TypeAliasType('WebsocketConnection',
-    websockets.asyncio.server.ServerConnection
+if typing.TYPE_CHECKING:
+    WebsocketConnection = typing.TypeAliasType('WebsocketConnection',
+        websockets.asyncio.server.ServerConnection
         | websockets.asyncio.client.ClientConnection)
 
 
