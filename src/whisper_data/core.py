@@ -33,15 +33,10 @@ WRONG_CERTIFICATE_CLOSE_CODE: int = 4000
 # DEFINITIONS
 
 
-# Workaround for type alias compatible with pre-3.12
-if typing.TYPE_CHECKING:
-    # noinspection compatibility
-    type WebsocketConnection = (websockets.asyncio.server.ServerConnection
+# Pre-3.12-compatible type alias
+WebsocketConnection = typing.TypeAliasType('WebsocketConnection',
+    websockets.asyncio.server.ServerConnection
         | websockets.asyncio.client.ClientConnection)
-else:
-    WebsocketConnection = typing.TypeAliasType('WebsocketConnection',
-        websockets.asyncio.server.ServerConnection
-            | websockets.asyncio.client.ClientConnection)
 
 
 class WaitForConnectionTimeout(TimeoutError):
